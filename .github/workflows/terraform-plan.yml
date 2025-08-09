@@ -23,18 +23,21 @@ jobs:
     env:
       TF_WORKING_DIR: terraform
       GOOGLE_CLOUD_PROJECT: esg-dev-jahid
+      TF_VAR_project_id: esg-dev-jahid
+      TF_VAR_env: dev
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Auth (OIDC)
+      - name: Authenticate to GCP (OIDC)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/1035645097437/locations/global/workloadIdentityPools/github-pool/providers/github-provider-dppd
           service_account: github-ci-dppd@esg-dev-jahid.iam.gserviceaccount.com
           export_environment_variables: true
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.5
 
@@ -43,23 +46,23 @@ jobs:
           rm -rf "${{ env.TF_WORKING_DIR }}"/.terraform
           rm -f  "${{ env.TF_WORKING_DIR }}"/.terraform.lock.hcl
 
-      - name: Init
+      - name: Terraform Init (fresh)
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -input=false -reconfigure -upgrade
 
-      - name: Format check
+      - name: Terraform Format Check
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} fmt -check
 
-      - name: Validate
+      - name: Terraform Validate
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
 
-      - name: Plan
+      - name: Terraform Plan (save binary plan)
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -lock-timeout=120s -input=false -out=tfplan
 
-      - name: Render plan (human)
-        run: terraform -chdir=${{ env.TF_WORKING_DIR }} show -no-color tfplan > plan.txt
+      - name: Render plan (human-readable)
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} show -no-color tfplan > ${{ env.TF_WORKING_DIR }}/plan.txt
 
-      - name: Render plan (json)
-        run: terraform -chdir=${{ env.TF_WORKING_DIR }} show -json tfplan > plan.json
+      - name: Render plan (JSON)
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} show -json tfplan > ${{ env.TF_WORKING_DIR }}/plan.json
 
       - name: Upload plan artifacts
         uses: actions/upload-artifact@v4
@@ -76,14 +79,18 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const path = process.env.TF_WORKING_DIR + '/plan.txt';
-            const body = fs.readFileSync(path, 'utf8');
-            const summary = body.match(/Plan:.*$/m)?.[0] || 'Plan generated.';
-            const truncated = body.length > 60000 ? body.slice(0, 60000) + '\n…(truncated)' : body;
-            const md = `### Terraform plan\n**${summary}**\n\n<details><summary>Full plan</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n</details>`;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: md
-            });
+            const planPath = process.env.TF_WORKING_DIR + '/plan.txt';
+            if (!fs.existsSync(planPath)) {
+              core.setFailed(`Plan file not found at ${planPath}`);
+            } else {
+              const body = fs.readFileSync(planPath, 'utf8');
+              const summaryLine = body.match(/^Plan:.*$/m)?.[0] || 'Plan generated.';
+              const truncated = body.length > 60000 ? body.slice(0, 60000) + '\n…(truncated)' : body;
+              const md = `### Terraform plan\n**${summaryLine}**\n\n<details><summary>Full plan</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n</details>`;
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: md
+              });
+            }
