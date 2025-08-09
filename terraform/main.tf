@@ -6,36 +6,17 @@ resource "google_project_service" "bigquery" {
 
 module "bronze_root" {
   source  = "terraform-google-modules/bigquery/google"
-  version = "~> 10.1" # your example shows ~> 9.0; 10.x works too
+  version = "~> 10.1"
 
-  project_id                 = var.project_id
-  location                   = var.bq_location
   dataset_id                 = "bronze"
   dataset_name               = "bronze"
-  description                = "Raw landing zone (Bronze)"
-  delete_contents_on_destroy = true # dev only
-
-  # Create a tiny table to prove module works
-  tables = [
-    {
-      table_id           = "healthcheck"
-      schema             = file("${path.module}/schemas/healthcheck.json")
-      time_partitioning  = null
-      range_partitioning = null
-      expiration_time    = null
-      clustering         = []
-      labels = {
-        env   = var.env
-        layer = "bronze"
-      }
-    }
-  ]
+  description                = "Bronze layer for raw ingested data"
+  project_id                 = var.project_id
+  location                   = var.bq_location
+  delete_contents_on_destroy = false
 
   dataset_labels = {
     env   = var.env
-    layer = "bronze"
-    app   = "data-platform-project-demo"
+    owner = "data-platform"
   }
-
-  depends_on = [google_project_service.bigquery]
 }
