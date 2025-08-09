@@ -1,16 +1,14 @@
 name: terraform-apply
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
-    paths:
-      - 'terraform/**'
-      - '.github/workflows/terraform-apply.yml'
+    paths: [ 'terraform/**', '.github/workflows/terraform-apply.yml' ]
+  workflow_dispatch:
 
 jobs:
   apply:
     runs-on: ubuntu-latest
-    environment: prod          # GitHub Environment gate/approval
+    environment: prod         # <-- job pauses until a reviewer approves
     concurrency:
       group: tf-apply-prod
       cancel-in-progress: false
@@ -22,27 +20,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Auth (OIDC)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/1035645097437/locations/global/workloadIdentityPools/github-pool/providers/github-provider-dppd
           service_account: github-ci-dppd@esg-dev-jahid.iam.gserviceaccount.com
           export_environment_variables: true
-
       - uses: hashicorp/setup-terraform@v3
         with: { terraform_version: 1.7.5 }
-
-      - name: Clean TF dir
-        run: |
-          rm -rf "${{ env.TF_WORKING_DIR }}"/.terraform
-          rm -f  "${{ env.TF_WORKING_DIR }}"/.terraform.lock.hcl
-
-      - name: Init
-        run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -input=false -reconfigure -upgrade
-
-      # Option A: Re-plan then apply
-      - name: Plan
-        run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -lock-timeout=120s -input=false -out=tfplan
-      - name: Apply
-        run: terraform -chdir=${{ env.TF_WORKING_DIR }} apply -input=false -auto-approve tfplan
+      - run: |
+          rm -rf ${{env.TF_WORKING_DIR}}/.terraform
+          rm -f  ${{env.TF_WORKING_DIR}}/.terraform.lock.hcl
+      - run: terraform -chdir=${{env.TF_WORKING_DIR}} init -reconfigure -upgrade -input=false
+      - run: terraform -chdir=${{env.TF_WORKING_DIR}} plan -lock-timeout=120s -out=tfplan -input=false
+      - run: terraform -chdir=${{env.TF_WORKING_DIR}} apply -auto-approve -input=false tfplan
