@@ -1,16 +1,12 @@
 
 
+
 resource "google_project_service" "bigquery" {
   project            = var.project_id
   service            = "bigquery.googleapis.com"
   disable_on_destroy = false
 }
 
-resource "google_project_service" "bigquery_storage" {
-  project            = var.project_id
-  service            = "bigquerystorage.googleapis.com"
-  disable_on_destroy = false
-}
 
 ########################################
 # Datasets via ROOT module (no tables yet)
@@ -94,4 +90,5 @@ resource "google_bigquery_dataset_iam_member" "silver_dbt_editor" {
   dataset_id = "silver"
   role       = "roles/bigquery.dataEditor"
   member     = "serviceAccount:${google_service_account.dbt_sa.email}"
+
 }
