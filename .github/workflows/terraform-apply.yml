@@ -1,26 +1,32 @@
 name: terraform-apply
 
 on:
+  workflow_dispatch:        # Manual run button
   push:
-    branches: [ main ]
+    branches: [ main ]      # Apply after merge to main
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-apply.yml'
 
 jobs:
   apply:
     runs-on: ubuntu-latest
-    environment: prod
-    concurrency: tf-apply-prod
+    environment: prod             # Create 'prod' env in GitHub → Settings → Environments and add approvers
+    concurrency: tf-apply-prod    # Prevent concurrent applies
     permissions:
       contents: read
-      id-token: write
+      id-token: write             # Required for OIDC
 
     env:
       TF_WORKING_DIR: terraform
       GOOGLE_CLOUD_PROJECT: esg-dev-jahid
+      TF_VAR_project_id: esg-dev-jahid
+      TF_VAR_env: dev             # keep dev for now; change to 'prod' when you promote
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Authenticate to GCP
+      - name: Authenticate to GCP (OIDC)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/1035645097437/locations/global/workloadIdentityPools/github-pool/providers/github-provider-dppd
@@ -32,6 +38,28 @@ jobs:
         with:
           terraform_version: 1.7.5
 
-      - run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -input=false
-      - run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -input=false -out=tfplan
-      - run: terraform -chdir=${{ env.TF_WORKING_DIR }} apply -input=false -auto-approve tfplan
+      - name: Clean TF dir
+        run: |
+          rm -rf "${{ env.TF_WORKING_DIR }}"/.terraform
+          rm -f  "${{ env.TF_WORKING_DIR }}"/.terraform.lock.hcl
+
+      - name: Terraform Init (fresh)
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -input=false -reconfigure -upgrade
+
+      - name: Terraform Validate
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
+
+      # Option A: Re-plan and apply (simple)
+      - name: Terraform Plan
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -input=false -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} apply -input=false -auto-approve tfplan
+
+      # --- Option B (stronger): Apply the exact PR plan artifact ---
+      # - uses: actions/download-artifact@v4
+      #   with:
+      #     name: tfplan
+      #     path: ${{ env.TF_WORKING_DIR }}
+      # - name: Terraform Apply (using PR plan)
+      #   run: terraform -chdir=${{ env.TF_WORKING_DIR }} apply -input=false -auto-approve tfplan

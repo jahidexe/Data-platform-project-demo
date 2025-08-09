@@ -1,8 +1,17 @@
 name: terraform-plan
 
 on:
+  workflow_dispatch:        # Manual run from GitHub Actions UI
+  push:
+    branches: [ dev ]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-plan.yml'
   pull_request:
     branches: [ dev, main ]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-plan.yml'
 
 jobs:
   plan:
@@ -15,8 +24,6 @@ jobs:
     env:
       TF_WORKING_DIR: terraform
       GOOGLE_CLOUD_PROJECT: esg-dev-jahid
-      TF_VAR_project_id: esg-dev-jahid
-      TF_VAR_env: dev
 
     steps:
       - uses: actions/checkout@v4
@@ -35,17 +42,14 @@ jobs:
 
       - name: Clean TF dir
         run: |
-          rm -rf "${{ env.TF_WORKING_DIR }}"/.terraform
-          rm -f  "${{ env.TF_WORKING_DIR }}"/.terraform.lock.hcl
+          rm -rf ${{ env.TF_WORKING_DIR }}/.terraform
+          rm -f  ${{ env.TF_WORKING_DIR }}/.terraform.lock.hcl
 
       - name: Terraform Init (fresh)
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -input=false -reconfigure -upgrade
 
-      - name: Terraform Format Check
-        run: terraform -chdir=${{ env.TF_WORKING_DIR }} fmt -check
-
-      - name: Terraform Validate
-        run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
+      - run: terraform -chdir=${{ env.TF_WORKING_DIR }} fmt -check
+      - run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
 
       - name: Terraform Plan
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -input=false -out=tfplan
