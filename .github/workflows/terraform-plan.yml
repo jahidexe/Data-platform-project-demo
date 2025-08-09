@@ -1,12 +1,6 @@
 name: terraform-plan
-
 on:
-  workflow_dispatch:        # Manual run from GitHub Actions UI
-  push:
-    branches: [ dev ]
-    paths:
-      - 'terraform/**'
-      - '.github/workflows/terraform-plan.yml'
+  workflow_dispatch:
   pull_request:
     branches: [ dev, main ]
     paths:
@@ -16,10 +10,10 @@ on:
 jobs:
   plan:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      pull-requests: write
+    permissions: { contents: read, id-token: write, pull-requests: write }
+    concurrency:
+      group: tf-plan-${{ github.ref_name }}
+      cancel-in-progress: true
 
     env:
       TF_WORKING_DIR: terraform
@@ -28,34 +22,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Authenticate to GCP
+      - name: Auth (OIDC)
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/1035645097437/locations/global/workloadIdentityPools/github-pool/providers/github-provider-dppd
           service_account: github-ci-dppd@esg-dev-jahid.iam.gserviceaccount.com
           export_environment_variables: true
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.7.5
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.7.5 }  # or your pinned version
 
       - name: Clean TF dir
         run: |
-          rm -rf ${{ env.TF_WORKING_DIR }}/.terraform
-          rm -f  ${{ env.TF_WORKING_DIR }}/.terraform.lock.hcl
+          rm -rf "${{ env.TF_WORKING_DIR }}"/.terraform
+          rm -f  "${{ env.TF_WORKING_DIR }}"/.terraform.lock.hcl
 
-      - name: Terraform Init (fresh)
+      - name: Init
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -input=false -reconfigure -upgrade
 
       - run: terraform -chdir=${{ env.TF_WORKING_DIR }} fmt -check
       - run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
 
-      - name: Terraform Plan
-        run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -input=false -out=tfplan
+      - name: Plan (with lock timeout)
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -lock-timeout=120s -input=false -out=tfplan
 
-      - name: Upload Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan
-          path: ${{ env.TF_WORKING_DIR }}/tfplan
+      - uses: actions/upload-artifact@v4
+        with: { name: tfplan, path: ${{ env.TF_WORKING_DIR }}/tfplan }
