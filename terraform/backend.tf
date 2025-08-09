@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
-    bucket = "tf-backend-esg-dev-jahid" # <-- ensure this bucket exists
-    prefix = "state"
+    bucket = "tf-backend-esg-dev-jahid"
+    prefix = "data-platform-project-demo/state"
   }
 }
