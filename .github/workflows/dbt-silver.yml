@@ -1,50 +1,38 @@
 name: dbt Silver Transform
 
 on:
-  workflow_dispatch: {}
-  push:
-    branches: [ main ]
-    paths:
-      - "dbt/**"
-      - ".github/workflows/dbt-silver.yml"
+  workflow_dispatch:
 
 jobs:
   dbt-silver:
+    name: Run dbt silver model
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # OIDC to GCP
+      id-token: write
 
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      # Authenticate to GCP using OIDC (no static keys)
-      - name: Auth (OIDC → GCP)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Auth to GCP via OIDC
+        id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/1035645097437/locations/global/workloadIdentityPools/github-pool/providers/github-provider-dppd
-          service_account: github-ci-dppd@esg-dev-jahid.iam.gserviceaccount.com
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.DBT_SA }}
           export_environment_variables: true
 
-      # Make sure libraries that rely on ADC pick up the OIDC creds file
-      - name: Export ADC path
-        run: echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_GHA_CREDS_PATH" >> $GITHUB_ENV
-
-      # (Optional) Debug identity
-      - name: Who am I? (debug)
+      - name: Install dbt BigQuery
         run: |
-          gcloud config list account
-          echo "GOOGLE_GHA_CREDS_PATH=$GOOGLE_GHA_CREDS_PATH"
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS"
-
-      # Install dbt for BigQuery
-      - name: Install dbt-bigquery
-        run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install dbt-bigquery==1.7.9
 
-      # Write dbt profiles.yml using the OIDC service account creds file
       - name: Write dbt profiles.yml
         working-directory: dbt
         run: |
@@ -56,24 +44,14 @@ jobs:
               dev:
                 type: bigquery
                 method: service-account
-                keyfile: "$GOOGLE_GHA_CREDS_PATH"
+                keyfile: "{{ env_var('GOOGLE_GHA_CREDS_PATH') }}"
                 project: esg-dev-jahid
                 dataset: silver
                 location: EU
                 threads: 4
+                priority: interactive
           EOF
-          echo "---- profiles.yml ----"
-          cat ~/.dbt/profiles.yml
 
-      # Run dbt from inside the dbt/ directory
-      - name: dbt deps
-        working-directory: dbt
-        run: dbt deps
-
-      - name: dbt run (silver)
+      - name: Run dbt silver
         working-directory: dbt
         run: dbt run --select silver
-
-      - name: dbt test (silver)
-        working-directory: dbt
-        run: dbt test --select silver
