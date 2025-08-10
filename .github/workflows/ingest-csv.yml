@@ -1,0 +1,38 @@
+name: ingest-csv
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: [ 'data/**', '.github/workflows/ingest-csv.yml' ]
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    permissions: { id-token: write, contents: read }
+    env:
+      PROJECT_ID: esg-dev-jahid
+      BQ_DATASET: bronze
+      BQ_TABLE: insurance_claims_raw
+      BQ_LOCATION: EU
+      BUCKET: esg-dev-jahid-raw-dev
+      SRC_PATH: data/insurance_claims.csv
+      GCS_PATH: ingest/insurance_claims/insurance_claims.csv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1035645097437/locations/global/workloadIdentityPools/github-pool/providers/github-provider-dppd
+          service_account: github-ci-dppd@esg-dev-jahid.iam.gserviceaccount.com
+          export_environment_variables: true
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Upload CSV to GCS
+        run: gsutil cp "$SRC_PATH" "gs://$BUCKET/$GCS_PATH"
+      - name: Load into BigQuery (autodetect)
+        run: |
+          bq load \
+            --location=$BQ_LOCATION \
+            --source_format=CSV \
+            --autodetect \
+            --replace=false \
+            ${PROJECT_ID}:${BQ_DATASET}.${BQ_TABLE} \
+            gs://${BUCKET}/${GCS_PATH}
