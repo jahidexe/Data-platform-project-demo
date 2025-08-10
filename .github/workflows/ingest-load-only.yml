@@ -1,0 +1,54 @@
+name: ingest-load-only
+
+on:
+  workflow_dispatch:
+    inputs:
+      gcs_uri:
+        description: 'gs://… path to CSV already in bucket'
+        required: true
+      replace:
+        description: 'Overwrite table (true/false)'
+        required: false
+        default: 'false'
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    env:
+      PROJECT_ID: esg-dev-jahid
+      BQ_DATASET: bronze
+      BQ_TABLE: insurance_claims_raw
+      BQ_LOCATION: EU
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth (OIDC)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1035645097437/locations/global/workloadIdentityPools/github-pool/providers/github-provider-dppd
+          service_account: github-ci-dppd@esg-dev-jahid.iam.gserviceaccount.com
+          export_environment_variables: true
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Install ETL deps
+        run: pip install -r etl/requirements.txt
+
+      - name: Load GCS → BigQuery (Python)
+        run: |
+          python etl/load_to_bq.py \
+            --project $PROJECT_ID \
+            --dataset $BQ_DATASET \
+            --table $BQ_TABLE \
+            --gcs_uri "${{ inputs.gcs_uri }}" \
+            --location $BQ_LOCATION $( [ "${{ inputs.replace }}" = "true" ] && echo --replace )
+
+      - name: Post-load validation (rows > 0)
+        run: |
+          bq --location=$BQ_LOCATION --format=json query --nouse_legacy_sql \
+            "SELECT COUNT(*) c FROM \`${PROJECT_ID}.${BQ_DATASET}.${BQ_TABLE}\`" \
+            | jq -r '.[0].c' | awk '{ if ($1<1) {print "No rows loaded"; exit 1} }'

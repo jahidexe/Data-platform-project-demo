@@ -1,0 +1,8 @@
+name: insurelytics
+version: "1.0"
+profile: insurelytics
+model-paths: ["models"]
+models:
+  insurelytics:
+    silver:
+      +materialized: table
