@@ -3,8 +3,7 @@ name: dbt Silver Transform
 on:
   workflow_dispatch: {}
   push:
-    branches:
-      - main
+    branches: [ main ]
     paths:
       - "dbt/**"
       - ".github/workflows/dbt-silver.yml"
@@ -13,14 +12,14 @@ jobs:
   dbt-silver:
     runs-on: ubuntu-latest
     permissions:
-      contents: 'read'
-      id-token: 'write'
+      contents: read
+      id-token: write   # OIDC to GCP
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Authenticate to GCP using OIDC (no keyfile in repo)
+      # Authenticate to GCP using OIDC (no static keys)
       - name: Auth (OIDC → GCP)
         uses: google-github-actions/auth@v2
         with:
@@ -28,11 +27,11 @@ jobs:
           service_account: github-ci-dppd@esg-dev-jahid.iam.gserviceaccount.com
           export_environment_variables: true
 
-      # Export ADC path so Python/dbt knows where creds are
+      # Make sure libraries that rely on ADC pick up the OIDC creds file
       - name: Export ADC path
         run: echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_GHA_CREDS_PATH" >> $GITHUB_ENV
 
-      # Debug auth identity
+      # (Optional) Debug identity
       - name: Who am I? (debug)
         run: |
           gcloud config list account
@@ -41,10 +40,13 @@ jobs:
 
       # Install dbt for BigQuery
       - name: Install dbt-bigquery
-        run: pip install dbt-bigquery==1.7.9
+        run: |
+          python -m pip install --upgrade pip
+          pip install dbt-bigquery==1.7.9
 
-      # Write dbt profiles.yml to use the OIDC service account creds
+      # Write dbt profiles.yml using the OIDC service account creds file
       - name: Write dbt profiles.yml
+        working-directory: dbt
         run: |
           mkdir -p ~/.dbt
           cat > ~/.dbt/profiles.yml <<'EOF'
@@ -63,6 +65,15 @@ jobs:
           echo "---- profiles.yml ----"
           cat ~/.dbt/profiles.yml
 
-      # Run dbt silver transformations
-      - name: Run dbt silver models
+      # Run dbt from inside the dbt/ directory
+      - name: dbt deps
+        working-directory: dbt
+        run: dbt deps
+
+      - name: dbt run (silver)
+        working-directory: dbt
         run: dbt run --select silver
+
+      - name: dbt test (silver)
+        working-directory: dbt
+        run: dbt test --select silver
