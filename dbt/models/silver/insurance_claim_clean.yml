@@ -1,6 +1,6 @@
 version: 2
 models:
-  - name: insurance_claims_clean
+  - name: insurance_claim_clean
     columns:
       - name: policy_number
         tests: [not_null]
